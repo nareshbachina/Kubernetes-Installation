@@ -1,0 +1,20 @@
+[Unit]
+Description=Kubernetes Kubelet
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStart=/usr/local/bin/kubelet \
+  --config={{ kubelet_conf_directory }}/kubelet-config.yaml \
+  --image-pull-progress-deadline=2m \
+  --kubeconfig={{ kubelet_conf_directory }}/kubeconfig \
+  --tls-cert-file={{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.crt \
+  --tls-private-key-file={{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.key \
+  --network-plugin=cni \
+  --register-node=true \
+  --v=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

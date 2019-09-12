@@ -1,0 +1,63 @@
+- name: Creating the kubernetes binary files download directory
+  file:
+    path: "{{ kubernetes_download_directory }}"
+    state: directory
+    owner: root
+    group: root
+
+- name: Creating the kubernetes configuration directory
+  file:
+    path: "{{ kubernetes_conf_directory }}"
+    state: directory
+    owner: root
+    group: root
+
+- name: Downloading the Certificate Authority key and certificate files from S3
+  aws_s3:
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    bucket: "{{ s3_bucket_name }}"
+    object: "/ca/{{ item }}"
+    dest: "{{ kubernetes_conf_directory }}/{{ item }}"
+    mode: get
+    overwrite: different
+  with_items:
+    - ca.crt
+    - ca.key
+
+- name: Creating the Private Key for the service account
+  openssl_privatekey:
+   path: "{{ kubernetes_conf_directory }}/service-account.key"
+   type: "RSA"
+   size: 2048
+
+- name: Creating the Ceritificate Signing Request for the created Private Key
+  openssl_csr:
+    path: "{{ kubernetes_conf_directory }}/service-account.csr"
+    privatekey_path: "{{ kubernetes_conf_directory }}/service-account.key"
+    common_name: "service-accounts"
+  
+- name: Generate an OpenSSL certificate signed with our own CA certificate
+  openssl_certificate:
+    path: "{{ kubernetes_conf_directory }}/service-account.crt"
+    csr_path: "{{ kubernetes_conf_directory }}/service-account.csr"
+    ownca_path: "{{ kubernetes_conf_directory }}/ca.crt"
+    ownca_privatekey_path: "{{ kubernetes_conf_directory }}/ca.key"
+    provider: ownca
+
+- name: Including the kubectl
+  include: kubectl.yml
+  
+- name: Including the kube api service
+  include: kube-api-server.yml
+
+- name: Including the kube controller manager
+  include: kube-controller-manager.yml
+
+- name: Including the kube scheduler
+  include: kube-scheduler.yml
+
+- name: Removing the Certificate Authority Private Key from the Server
+  file:
+    path: "{{ kubernetes_conf_directory}}/ca.key"
+    state: absent

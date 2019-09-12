@@ -1,0 +1,119 @@
+
+- name: Check if kubelet binary exists at the required location
+  stat:
+    path: "{{ kubernetes_binaries_directory }}/kubelet"
+  register: kubelet_binary_exists
+
+- name: debug
+  debug:
+    var=kubelet_binary_exists
+
+- name: Check if kubelet binary version matches with the required version
+  shell: kubelet --version | awk '{print $2}'
+  register: kubelet_version_check
+  when: kubelet_binary_exists.stat.exists == True
+
+- name: debug
+  debug:
+    var=kubelet_version_check
+
+
+- name: Download the kubelet binary file
+  get_url:
+    url: "{{ kubelet_download_url }}"
+    dest: "{{ kubernetes_download_directory }}"
+  when: kubelet_binary_exists.stat.exists == False
+
+- name: Move the kubelet binary to PATH variable locations
+  copy:
+    src: "{{ kubernetes_download_directory }}/kubelet"
+    dest: "{{ kubernetes_binaries_directory }}"
+    owner: root
+    group: root
+    mode: "a+x"
+    remote_src: yes
+  when: kubelet_binary_exists.stat.exists == False
+
+- name: Creating the Private Key for the Kubelet
+  openssl_privatekey:
+   path: "{{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.key"
+   type: "RSA"
+   size: 2048
+
+- name: Creating the Ceritificate Signing Request for the created Private Key
+  openssl_csr:
+    path: "{{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.csr"
+    privatekey_path: "{{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.key"
+    common_name: "system:node:{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
+    organization_name: "system:nodes"
+    subject_alt_name: "DNS:{{ hostvars[inventory_hostname]['ansible_hostname'] }},IP:{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+  
+- name: Generate an OpenSSL certificate signed with our own CA certificate
+  openssl_certificate:
+    path: "{{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.crt"
+    csr_path: "{{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.csr"
+    ownca_path: "{{ kubernetes_conf_directory }}/ca.crt"
+    ownca_privatekey_path: "{{ kubernetes_conf_directory }}/ca.key"
+    provider: ownca
+
+- name: Generating the Kube config file for kubelet - 1
+  shell: kubectl config set-cluster "{{ kuberentes_cluster_name }}" --certificate-authority="{{ kubernetes_conf_directory }}/ca.crt" --embed-certs=true --server=https://"{{ kubernetes_masters_loadbalancer }}":6443 --kubeconfig=kubeconfig
+  args:
+    chdir: "{{ kubelet_conf_directory }}"
+  register: kube_config_generate_1
+
+- name: debug kube config generate 1
+  debug:
+    var=kube_config_generate_1
+
+- name: Generating the kube config file for kubelet - 2
+  shell: kubectl config set-credentials system:node:"{{ hostvars[inventory_hostname]['ansible_hostname'] }}" --client-certificate="{{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.crt" --client-key="{{ kubelet_conf_directory }}/{{ hostvars[inventory_hostname]['ansible_hostname'] }}.key" --embed-certs=true --kubeconfig=kubeconfig
+  args:
+    chdir: "{{ kubelet_conf_directory }}"
+  register: kube_config_generate_2
+
+- name: debug kube config generate 2
+  debug:
+    var=kube_config_generate_2
+
+- name: Generating the kube config file for kubelet - 3
+  shell: kubectl config set-context default --cluster="{{ kuberentes_cluster_name }}" --user=system:node:"{{ hostvars[inventory_hostname]['ansible_hostname'] }}" --kubeconfig=kubeconfig
+  args:
+    chdir: "{{ kubelet_conf_directory }}"
+  register: kube_config_generate_3
+
+- name: debug kube config generate 3
+  debug:
+    var=kube_config_generate_3
+
+- name: Generatign the kube config file for kubelet - 4
+  shell: kubectl config use-context default --kubeconfig=kubeconfig
+  args:
+    chdir: "{{ kubelet_conf_directory }}"
+  register: kube_config_generate_4
+
+- name: debug kube config generate 4
+  debug:
+    var=kube_config_generate_4
+
+- name: Generating the kubelet configuration file
+  template:
+    src: "kubelet-config.yaml.j2"
+    dest: "{{ kubelet_conf_directory }}/kubelet-config.yaml"
+    owner: root
+    group: root
+
+- name: Creating the kubelet systemd service unit file
+  template:
+    src: "kubelet.service.j2"
+    dest: "/etc/systemd/system/kubelet.service"
+    owner: root
+    group: root
+  notify: 
+    - systemd reload
+
+- name: Enabling and start the kubelet service
+  systemd:
+    name: kubelet
+    state: started
+    enabled: true

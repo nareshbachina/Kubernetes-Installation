@@ -1,0 +1,20 @@
+- name: Creating the directories required for weave
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+  with_items:
+    - "{{ cni_bin_directory }}"
+    - "{{ cni_conf_directory }}"
+
+- name: Download the weave network plugin
+  get_url:
+    url: "{{ weave_networking_download_url }}"
+    dest: "{{ kubernetes_download_directory }}"
+
+- name: Extracting the weave network plugin archive file
+  unarchive:
+    copy: no
+    src: "{{ kubernetes_download_directory }}/cni-plugins-amd64-v0.7.5.tgz"
+    dest: "{{ cni_bin_directory }}"

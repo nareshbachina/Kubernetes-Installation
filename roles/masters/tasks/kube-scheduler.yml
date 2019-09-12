@@ -1,0 +1,111 @@
+---
+- name: Check if kube scheduler binary exists at the required location
+  stat:
+    path: "{{ kubernetes_binaries_directory }}/kube-scheduler"
+  register: kube_scheduler_binary_exists
+
+- name: debug
+  debug:
+    var=kube_scheduler_binary_exists
+
+- name: Check if kube scheduler binary version matches with the required version
+  shell: kube-scheduler --version | awk '{print $2}'
+  register: kube_scheduler_version_check
+  when: kube_scheduler_binary_exists.stat.exists == True
+
+- name: debug
+  debug:
+    var=kube_scheduler_version_check
+
+
+- name: Download the kube scheduler binary file
+  get_url:
+    url: "{{ kube_scheduler_download_url }}"
+    dest: "{{ kubernetes_download_directory }}"
+  when: kube_scheduler_binary_exists.stat.exists == False
+
+- name: Move the kube scheduler binary to PATH variable locations
+  copy:
+    src: "{{ kubernetes_download_directory }}/kube-scheduler"
+    dest: "{{ kubernetes_binaries_directory }}"
+    owner: root
+    group: root
+    mode: "a+x"
+    remote_src: yes
+  when: kube_scheduler_binary_exists.stat.exists == False
+
+- name: Creating the Private Key for the kube-scheduler
+  openssl_privatekey:
+   path: "{{ kubernetes_conf_directory }}/kube-scheduler.key"
+   type: "RSA"
+   size: 2048
+
+- name: Creating the Ceritificate Signing Request for the created Private Key
+  openssl_csr:
+    path: "{{ kubernetes_conf_directory }}/kube-scheduler.csr"
+    privatekey_path: "{{ kubernetes_conf_directory }}/kube-scheduler.key"
+    common_name: "system:kube-scheduler"
+  
+- name: Generate an OpenSSL certificate signed with our own CA certificate
+  openssl_certificate:
+    path: "{{ kubernetes_conf_directory }}/kube-scheduler.crt"
+    csr_path: "{{ kubernetes_conf_directory }}/kube-scheduler.csr"
+    ownca_path: "{{ kubernetes_conf_directory }}/ca.crt"
+    ownca_privatekey_path: "{{ kubernetes_conf_directory }}/ca.key"
+    provider: ownca
+
+
+- name: Generating the Kube config file for kube-scheduler - 1
+  shell: kubectl config set-cluster "{{ kuberentes_cluster_name }}" --certificate-authority="{{ kubernetes_conf_directory }}/ca.crt" --embed-certs=true --server=https://127.0.0.1:6443 --kubeconfig=kube-scheduler.kubeconfig
+  args:
+    chdir: "{{ kubernetes_conf_directory }}"
+  register: kube_config_generate_1
+
+- name: debug kube config generate 1
+  debug:
+    var=kube_config_generate_1
+
+- name: Generating the kube config file for kube-scheduler - 2
+  shell: kubectl config set-credentials system:kube-scheduler --client-certificate="{{ kubernetes_conf_directory }}/kube-scheduler.crt" --client-key="{{ kubernetes_conf_directory }}/kube-scheduler.key" --embed-certs=true --kubeconfig=kube-scheduler.kubeconfig
+  args:
+    chdir: "{{ kubernetes_conf_directory }}"
+  register: kube_config_generate_2
+
+- name: debug kube config generate 2
+  debug:
+    var=kube_config_generate_2
+
+- name: Generating the kube config file for kube-scheduler - 3
+  shell: kubectl config set-context default --cluster="{{ kuberentes_cluster_name }}" --user=system:kube-scheduler --kubeconfig=kube-scheduler.kubeconfig
+  args:
+    chdir: "{{ kubernetes_conf_directory }}"
+  register: kube_config_generate_3
+
+- name: debug kube config generate 3
+  debug:
+    var=kube_config_generate_3
+
+- name: Generatign the kube config file for kube-scheduler - 4
+  shell: kubectl config use-context default --kubeconfig=kube-scheduler.kubeconfig
+  args:
+    chdir: "{{ kubernetes_conf_directory }}"
+  register: kube_config_generate_4
+
+- name: debug kube config generate 4
+  debug:
+    var=kube_config_generate_4
+
+- name: Creating the kube scheduler systemd service unit file
+  template:
+    src: "kube-scheduler.service.j2"
+    dest: "/etc/systemd/system/kube-scheduler.service"
+    owner: root
+    group: root
+  notify: 
+    - systemd reload
+
+- name: Enabling and start the kube scheduler service
+  systemd:
+    name: kube-scheduler
+    state: started
+    enabled: true

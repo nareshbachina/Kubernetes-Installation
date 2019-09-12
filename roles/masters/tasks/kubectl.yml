@@ -1,0 +1,35 @@
+---
+- name: Check if kubectl binary exists at the required location
+  stat:
+    path: "{{ kubernetes_binaries_directory }}/kubectl"
+  register: kubectl_binary_exists
+
+- name: debug
+  debug:
+    var=kubectl_binary_exists
+
+#- name: Check if kubectl binary version matches with the required version
+#  shell: kubectl --version | awk '{print $2}'
+#  register: kubectl_version_check
+#  when: kubectl_binary_exists.stat.exists == True
+
+#- name: debug
+#  debug:
+#    var=kubectl_version_check
+
+
+- name: Download the kubectl binary file
+  get_url:
+    url: "{{ kubectl_download_url }}"
+    dest: "{{ kubernetes_download_directory }}"
+  when: kubectl_binary_exists.stat.exists == False
+
+- name: Move the kube scheduler binary to PATH variable locations
+  copy:
+    src: "{{ kubernetes_download_directory }}/kubectl"
+    dest: "{{ kubernetes_binaries_directory }}"
+    owner: root
+    group: root
+    mode: "a+x"
+    remote_src: yes
+  when: kubectl_binary_exists.stat.exists == False

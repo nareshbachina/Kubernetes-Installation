@@ -1,0 +1,37 @@
+- name: Downloading the Certificate Authority key and certificate files from S3
+  aws_s3:
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    bucket: "{{ s3_bucket_name }}"
+    object: "/ca/{{ item }}"
+    dest: "{{ kubernetes_conf_directory }}/{{ item }}"
+    mode: get
+    overwrite: different
+  with_items:
+    - ca.crt
+    - ca.key
+
+- name: Creating the directories required for workers
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+  with_items:
+    - "{{ kubernetes_conf_directory }}"
+    - "{{ kubernetes_run_directory }}"
+    - "{{ kubelet_conf_directory }}"
+    - "{{ kubernetes_download_directory }}"
+    - "{{ kube_proxy_conf_directory }}"
+
+- name: Including the kubectl
+  include: kubectl.yml
+  
+- name: Including the kubelet
+  include: kubelet.yml
+
+- name: Including the kube-proxy
+  include: kube-proxy.yml
+
+- name: Including weave network plugin
+  include: weave.yml

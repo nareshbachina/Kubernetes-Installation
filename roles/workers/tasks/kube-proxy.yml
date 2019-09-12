@@ -1,0 +1,118 @@
+- name: Check if kube-proxy exists at the required location
+  stat:
+    path: "{{ kubernetes_binaries_directory }}/kube-proxy"
+  register: kube_proxy_binary_exists
+
+- name: debug
+  debug:
+    var=kube_proxy_binary_exists
+
+- name: Check if kubelet binary version matches with the required version
+  shell: kube-proxy --version | awk '{print $2}'
+  register: kube_proxy_version_check
+  when: kube_proxy_binary_exists.stat.exists == True
+
+- name: debug
+  debug:
+    var=kube_proxy_version_check
+
+
+- name: Download the kubelet binary file
+  get_url:
+    url: "{{ kube_proxy_download_url }}"
+    dest: "{{ kubernetes_download_directory }}"
+  when: kube_proxy_binary_exists.stat.exists == False
+
+- name: Move the kube-proxy binary to PATH variable locations
+  copy:
+    src: "{{ kubernetes_download_directory }}/kube-proxy"
+    dest: "{{ kubernetes_binaries_directory }}"
+    owner: root
+    group: root
+    mode: "a+x"
+    remote_src: yes
+  when: kube_proxy_binary_exists.stat.exists == False
+
+- name: Creating the Private Key for the kube-proxy
+  openssl_privatekey:
+   path: "{{ kube_proxy_conf_directory }}/kube-proxy.key"
+   type: "RSA"
+   size: 2048
+
+- name: Creating the Ceritificate Signing Request for the created Private Key
+  openssl_csr:
+    path: "{{ kube_proxy_conf_directory }}/kube-proxy.csr"
+    privatekey_path: "{{ kube_proxy_conf_directory }}/kube-proxy.key"
+    common_name: "system:kube-proxy"
+  
+- name: Generate an OpenSSL certificate signed with our own CA certificate
+  openssl_certificate:
+    path: "{{ kube_proxy_conf_directory }}/kube-proxy.crt"
+    csr_path: "{{ kube_proxy_conf_directory }}/kube-proxy.csr"
+    ownca_path: "{{ kubernetes_conf_directory }}/ca.crt"
+    ownca_privatekey_path: "{{ kubernetes_conf_directory }}/ca.key"
+    provider: ownca
+
+
+- name: Generating the Kube config file for kube-proxy - 1
+  shell: kubectl config set-cluster "{{ kuberentes_cluster_name }}" --certificate-authority="{{ kubernetes_conf_directory }}/ca.crt" --embed-certs=true --server=https://"{{ kubernetes_masters_loadbalancer }}":6443 --kubeconfig=kubeconfig
+  args:
+    chdir: "{{ kube_proxy_conf_directory }}"
+  register: kube_config_generate_1
+
+- name: debug kube config generate 1
+  debug:
+    var=kube_config_generate_1
+
+- name: Generating the kube config file for kube-proxy - 2
+  shell: kubectl config set-credentials system:kube-proxy --client-certificate="{{ kube_proxy_conf_directory }}/kube-proxy.crt" --client-key="{{ kube_proxy_conf_directory }}/kube-proxy.key" --embed-certs=true --kubeconfig=kubeconfig
+  args:
+    chdir: "{{ kube_proxy_conf_directory }}"
+  register: kube_config_generate_2
+
+- name: debug kube config generate 2
+  debug:
+    var=kube_config_generate_2
+
+- name: Generating the kube config file for kube-proxy - 3
+  shell: kubectl config set-context default --cluster="{{ kuberentes_cluster_name }}" --user=system:kube-proxy --kubeconfig=kubeconfig
+  args:
+    chdir: "{{ kube_proxy_conf_directory }}"
+  register: kube_config_generate_3
+
+- name: debug kube config generate 3
+  debug:
+    var=kube_config_generate_3
+
+- name: Generatign the kube config file for kube-proxy - 4
+  shell: kubectl config use-context default --kubeconfig=kubeconfig
+  args:
+    chdir: "{{ kube_proxy_conf_directory }}"
+  register: kube_config_generate_4
+
+- name: debug kube config generate 4
+  debug:
+    var=kube_config_generate_4
+
+
+- name: Generating the kube-proxy configuration file
+  template:
+    src: "kube-proxy-config.yaml.j2"
+    dest: "{{ kubelet_conf_directory }}/kube-proxy-config.yaml"
+    owner: root
+    group: root
+
+- name: Creating the kube-proxy service unit file
+  template:
+    src: "kube-proxy.service.j2"
+    dest: "/etc/systemd/system/kube-proxy.service"
+    owner: root
+    group: root
+  notify: 
+    - systemd reload
+
+- name: Enabling and start the kube-proxy service
+  systemd:
+    name: kube-proxy
+    state: started
+    enabled: true

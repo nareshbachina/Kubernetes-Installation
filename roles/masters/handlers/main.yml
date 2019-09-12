@@ -1,0 +1,9 @@
+---
+- name: systemd reload
+  systemd:
+    daemon_reload: yes
+
+- name: restart the kube-apiserver service
+  systemd:
+    name: kube-apiserver
+    state: restarted

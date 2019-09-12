@@ -1,0 +1,20 @@
+---
+
+kubernetes_conf_directory: "/var/lib/kubernetes"
+kubernetes_run_directory: "/var/run/kubernetes"
+kubernetes_binaries_directory: "/usr/local/bin"
+kubernetes_download_directory: "/opt/kubernetes"
+
+cni_bin_directory: "/opt/cni/bin"
+cni_conf_directory: "/etc/cni/net.d"
+
+kubectl_download_url: "https://storage.googleapis.com/kubernetes-release/release/v{{ kubernetes_version }}/bin/linux/amd64/kubectl"
+
+kubelet_conf_directory: "/var/lib/kubelet"
+kubelet_download_url: "https://storage.googleapis.com/kubernetes-release/release/v{{ kubernetes_version }}/bin/linux/amd64/kubelet"
+
+kube_proxy_conf_directory: "/var/lib/kube-proxy"
+kube_proxy_download_url: "https://storage.googleapis.com/kubernetes-release/release/v{{ kubernetes_version }}/bin/linux/amd64/kube-proxy "
+
+
+weave_networking_download_url: "https://github.com/containernetworking/plugins/releases/download/v0.7.5/cni-plugins-amd64-v0.7.5.tgz"
