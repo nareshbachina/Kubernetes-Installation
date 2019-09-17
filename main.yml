@@ -1,3 +1,6 @@
 - name: Including the variables file
   include_vars: vars.yml
-- import_playbook: masters.yml
+- import_playbook: 
+   - etcd.yml
+   - masters.yml
+   - workers.yml
